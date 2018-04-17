@@ -44,6 +44,7 @@ class LoaderTest(unittest.TestCase):
                 cdll.LoadLibrary(lib)
                 CDLL(lib)
 
+    @unittest.skipUnless(libc_name is not None, 'could not find libc')
     @unittest.skipUnless(os.name in ("nt", "ce"),
                          'test specific to Windows (NT/CE)')
     def test_load_library(self):

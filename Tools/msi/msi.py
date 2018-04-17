@@ -28,7 +28,7 @@ have_tcl = True
 # path to PCbuild directory
 PCBUILD=os.environ.get("PCBUILD", "PCbuild")
 # msvcrt version
-MSVCR = "90"
+MSVCR = os.environ.get("MSVCR", "90")
 # Name of certificate in default store to sign MSI with
 certname = os.environ.get("CERTNAME", None)
 # Make a zip file containing the PDB files for this build?
@@ -977,21 +977,22 @@ def add_files(db):
                     language=installer.FileVersion(pydllsrc, 1))
     DLLs = PyDirectory(db, cab, root, srcdir + "/" + PCBUILD, "DLLs", "DLLS|DLLs")
 
-    # msvcr90.dll: Need to place the DLL and the manifest into the root directory,
-    # plus another copy of the manifest in the DLLs directory, with the manifest
-    # pointing to the root directory
-    root.start_component("msvcr90", feature=private_crt)
-    # Results are ID,keyword pairs
-    manifest, crtdll = extract_msvcr90()
-    root.add_file(manifest[0], **manifest[1])
-    root.add_file(crtdll[0], **crtdll[1])
-    # Copy the manifest
-    # Actually, don't do that anymore - no DLL in DLLs should have a manifest
-    # dependency on msvcr90.dll anymore, so this should not be necessary
-    #manifest_dlls = manifest[0]+".root"
-    #open(manifest_dlls, "w").write(open(manifest[1]['src']).read().replace("msvcr","../msvcr"))
-    #DLLs.start_component("msvcr90_dlls", feature=private_crt)
-    #DLLs.add_file(manifest[0], src=os.path.abspath(manifest_dlls))
+    if MSVCR == "90":
+        # msvcr90.dll: Need to place the DLL and the manifest into the root directory,
+        # plus another copy of the manifest in the DLLs directory, with the manifest
+        # pointing to the root directory
+        root.start_component("msvcr90", feature=private_crt)
+        # Results are ID,keyword pairs
+        manifest, crtdll = extract_msvcr90()
+        root.add_file(manifest[0], **manifest[1])
+        root.add_file(crtdll[0], **crtdll[1])
+        # Copy the manifest
+        # Actually, don't do that anymore - no DLL in DLLs should have a manifest
+        # dependency on msvcr90.dll anymore, so this should not be necessary
+        #manifest_dlls = manifest[0]+".root"
+        #open(manifest_dlls, "w").write(open(manifest[1]['src']).read().replace("msvcr","../msvcr"))
+        #DLLs.start_component("msvcr90_dlls", feature=private_crt)
+        #DLLs.add_file(manifest[0], src=os.path.abspath(manifest_dlls))
 
     # Now start the main component for the DLLs directory;
     # no regular files have been added to the directory yet.
@@ -1376,72 +1377,73 @@ try:
 finally:
     del db
 
-# Merge CRT into MSI file. This requires the database to be closed.
-mod_dir = os.path.join(os.environ["ProgramFiles"], "Common Files", "Merge Modules")
-if msilib.Win64:
-    modules = ["Microsoft_VC90_CRT_x86_x64.msm", "policy_9_0_Microsoft_VC90_CRT_x86_x64.msm"]
-else:
-    modules = ["Microsoft_VC90_CRT_x86.msm","policy_9_0_Microsoft_VC90_CRT_x86.msm"]
+if MSVCR == "90":
+    # Merge CRT into MSI file. This requires the database to be closed.
+    mod_dir = os.path.join(os.environ["ProgramFiles"], "Common Files", "Merge Modules")
+    if msilib.Win64:
+        modules = ["Microsoft_VC90_CRT_x86_x64.msm", "policy_9_0_Microsoft_VC90_CRT_x86_x64.msm"]
+    else:
+        modules = ["Microsoft_VC90_CRT_x86.msm","policy_9_0_Microsoft_VC90_CRT_x86.msm"]
 
-for i, n in enumerate(modules):
-    modules[i] = os.path.join(mod_dir, n)
+    for i, n in enumerate(modules):
+        modules[i] = os.path.join(mod_dir, n)
 
-def merge(msi, feature, rootdir, modules):
-    cab_and_filecount = []
-    # Step 1: Merge databases, extract cabfiles
-    m = msilib.MakeMerge2()
-    m.OpenLog("merge.log")
-    m.OpenDatabase(msi)
-    for module in modules:
-        print module
-        m.OpenModule(module,0)
-        m.Merge(feature, rootdir)
-        print "Errors:"
-        for e in m.Errors:
-            print e.Type, e.ModuleTable, e.DatabaseTable
-            print "   Modkeys:",
-            for s in e.ModuleKeys: print s,
-            print
-            print "   DBKeys:",
-            for s in e.DatabaseKeys: print s,
-            print
-        cabname = tempfile.mktemp(suffix=".cab")
-        m.ExtractCAB(cabname)
-        cab_and_filecount.append((cabname, len(m.ModuleFiles)))
-        m.CloseModule()
-    m.CloseDatabase(True)
-    m.CloseLog()
+    def merge(msi, feature, rootdir, modules):
+        cab_and_filecount = []
+        # Step 1: Merge databases, extract cabfiles
+        m = msilib.MakeMerge2()
+        m.OpenLog("merge.log")
+        m.OpenDatabase(msi)
+        for module in modules:
+            print module
+            m.OpenModule(module,0)
+            m.Merge(feature, rootdir)
+            print "Errors:"
+            for e in m.Errors:
+                print e.Type, e.ModuleTable, e.DatabaseTable
+                print "   Modkeys:",
+                for s in e.ModuleKeys: print s,
+                print
+                print "   DBKeys:",
+                for s in e.DatabaseKeys: print s,
+                print
+            cabname = tempfile.mktemp(suffix=".cab")
+            m.ExtractCAB(cabname)
+            cab_and_filecount.append((cabname, len(m.ModuleFiles)))
+            m.CloseModule()
+        m.CloseDatabase(True)
+        m.CloseLog()
 
-    # Step 2: Add CAB files
-    i = msilib.MakeInstaller()
-    db = i.OpenDatabase(msi, constants.msiOpenDatabaseModeTransact)
+        # Step 2: Add CAB files
+        i = msilib.MakeInstaller()
+        db = i.OpenDatabase(msi, constants.msiOpenDatabaseModeTransact)
 
-    v = db.OpenView("SELECT LastSequence FROM Media")
-    v.Execute(None)
-    maxmedia = -1
-    while 1:
-        r = v.Fetch()
-        if not r: break
-        seq = r.IntegerData(1)
-        if seq > maxmedia:
-            maxmedia = seq
-    print "Start of Media", maxmedia
+        v = db.OpenView("SELECT LastSequence FROM Media")
+        v.Execute(None)
+        maxmedia = -1
+        while 1:
+            r = v.Fetch()
+            if not r: break
+            seq = r.IntegerData(1)
+            if seq > maxmedia:
+                maxmedia = seq
+        print "Start of Media", maxmedia
 
-    for cabname, count in cab_and_filecount:
-        stream = "merged%d" % maxmedia
-        msilib.add_data(db, "Media",
-                [(maxmedia+1, maxmedia+count, None, "#"+stream, None, None)])
-        msilib.add_stream(db, stream,  cabname)
-        os.unlink(cabname)
-        maxmedia += count
-    # The merge module sets ALLUSERS to 1 in the property table.
-    # This is undesired; delete that
-    v = db.OpenView("DELETE FROM Property WHERE Property='ALLUSERS'")
-    v.Execute(None)
-    v.Close()
-    db.Commit()
+        for cabname, count in cab_and_filecount:
+            stream = "merged%d" % maxmedia
+            msilib.add_data(db, "Media",
+                    [(maxmedia+1, maxmedia+count, None, "#"+stream, None, None)])
+            msilib.add_stream(db, stream,  cabname)
+            os.unlink(cabname)
+            maxmedia += count
+        # The merge module sets ALLUSERS to 1 in the property table.
+        # This is undesired; delete that
+        v = db.OpenView("DELETE FROM Property WHERE Property='ALLUSERS'")
+        v.Execute(None)
+        v.Close()
+        db.Commit()
 
-merge(msiname, "SharedCRT", "TARGETDIR", modules)
+    merge(msiname, "SharedCRT", "TARGETDIR", modules)
 
 # certname (from config.py) should be (a substring of)
 # the certificate subject, e.g. "Python Software Foundation"

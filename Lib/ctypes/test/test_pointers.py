@@ -5,8 +5,8 @@ import _ctypes_test
 
 ctype_types = [c_byte, c_ubyte, c_short, c_ushort, c_int, c_uint,
                  c_long, c_ulong, c_longlong, c_ulonglong, c_double, c_float]
-python_types = [int, int, int, int, int, long,
-                int, long, long, long, float, float]
+python_types = [int, int, int, int, int, int,
+                long, long, long, long, float, float]
 
 class PointersTestCase(unittest.TestCase):
 
@@ -22,7 +22,10 @@ class PointersTestCase(unittest.TestCase):
     def test_pass_pointers(self):
         dll = CDLL(_ctypes_test.__file__)
         func = dll._testfunc_p_p
-        func.restype = c_long
+        if sizeof(c_longlong) == sizeof(c_void_p):
+            func.restype = c_longlong
+        else:
+            func.restype = c_long
 
         i = c_int(12345678)
 ##        func.argtypes = (POINTER(c_int),)

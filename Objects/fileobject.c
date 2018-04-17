@@ -701,6 +701,9 @@ _portable_fseek(FILE *fp, Py_off_t offset, int whence)
 #elif defined(__BEOS__)
     return _fseek(fp, offset, whence);
 #elif SIZEOF_FPOS_T >= 8
+#if _MSC_VER >= 1900
+	return _fseeki64(fp, offset, whence);
+#else
     /* lacking a 64-bit capable fseek(), use a 64-bit capable fsetpos()
        and fgetpos() to implement fseek()*/
     fpos_t pos;
@@ -723,6 +726,8 @@ _portable_fseek(FILE *fp, Py_off_t offset, int whence)
     /* case SEEK_SET: break; */
     }
     return fsetpos(fp, &offset);
+
+#endif
 #else
 #error "Large file support, but no way to fseek."
 #endif

@@ -73,29 +73,26 @@ static PyObject *portable_lseek(int fd, PyObject *posobj, int whence);
 static int
 internal_close(fileio *self)
 {
-    int err = 0;
-    int save_errno = 0;
-    if (self->fd >= 0) {
-        int fd = self->fd;
-        self->fd = -1;
-        /* fd is accessible and someone else may have closed it */
-        if (_PyVerify_fd(fd)) {
-            Py_BEGIN_ALLOW_THREADS
-            err = close(fd);
-            if (err < 0)
-                save_errno = errno;
-            Py_END_ALLOW_THREADS
-        } else {
-            save_errno = errno;
-            err = -1;
-        }
-    }
-    if (err < 0) {
-        errno = save_errno;
-        PyErr_SetFromErrno(PyExc_IOError);
-        return -1;
-    }
-    return 0;
+	int err = 0;
+	int save_errno = 0;
+	if (self->fd >= 0) {
+		int fd = self->fd;
+		self->fd = -1;
+		/* fd is accessible and someone else may have closed it */
+		Py_BEGIN_ALLOW_THREADS
+        _Py_BEGIN_SUPPRESS_IPH
+		err = close(fd);
+		if (err < 0)
+			save_errno = errno;
+        _Py_END_SUPPRESS_IPH
+		Py_END_ALLOW_THREADS
+	}
+	if (err < 0) {
+		errno = save_errno;
+		PyErr_SetFromErrno(PyExc_IOError);
+		return -1;
+	}
+	return 0;
 }
 
 static PyObject *
@@ -327,8 +324,6 @@ fileio_init(PyObject *oself, PyObject *args, PyObject *kwds)
 #endif
 
     if (fd >= 0) {
-        if (check_fd(fd))
-            goto error;
         self->fd = fd;
         self->closefd = closefd;
     }
@@ -360,11 +355,22 @@ fileio_init(PyObject *oself, PyObject *args, PyObject *kwds)
             goto error;
         }
     }
-    if (dircheck(self, nameobj) < 0)
-        goto error;
 
     if (PyObject_SetAttrString((PyObject *)self, "name", nameobj) < 0)
         goto error;
+
+#if defined MS_WINDOWS && _MSC_VER >= 1900
+	__int64 pos;
+	Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
+	pos = _telli64(self->fd);
+	_Py_END_SUPPRESS_IPH
+	Py_END_ALLOW_THREADS
+	if (pos == -1) {
+		PyErr_SetString(PyExc_OSError, "Invalid file handle.");
+		goto error;
+	}
+#endif
 
     if (self->appending) {
         /* For consistent behaviour, we explicitly seek to the
@@ -379,10 +385,11 @@ fileio_init(PyObject *oself, PyObject *args, PyObject *kwds)
     goto done;
 
  error:
+    ret = -1;
     if (!fd_is_own)
         self->fd = -1;
-
-    ret = -1;
+    if (self->fd >= 0)
+        internal_close(self);
 
  done:
     Py_CLEAR(stringobj);
@@ -488,6 +495,7 @@ fileio_readinto(fileio *self, PyObject *args)
     if (_PyVerify_fd(self->fd)) {
         len = pbuf.len;
         Py_BEGIN_ALLOW_THREADS
+		_Py_BEGIN_SUPPRESS_IPH
         errno = 0;
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
         if (len > INT_MAX)
@@ -496,6 +504,7 @@ fileio_readinto(fileio *self, PyObject *args)
 #else
         n = read(self->fd, pbuf.buf, len);
 #endif
+		_Py_END_SUPPRESS_IPH
         Py_END_ALLOW_THREADS
     } else
         n = -1;
@@ -513,26 +522,20 @@ fileio_readinto(fileio *self, PyObject *args)
 static size_t
 new_buffersize(fileio *self, size_t currentsize)
 {
-#ifdef HAVE_FSTAT
-    off_t pos, end;
-    struct stat st;
-    if (fstat(self->fd, &st) == 0) {
-        end = st.st_size;
-        pos = lseek(self->fd, 0L, SEEK_CUR);
-        /* Files claiming a size smaller than SMALLCHUNK may
-           actually be streaming pseudo-files. In this case, we
-           apply the more aggressive algorithm below.
-        */
-        if (end >= SMALLCHUNK && end >= pos && pos >= 0) {
-            /* Add 1 so if the file were to grow we'd notice. */
-            return currentsize + end - pos + 1;
-        }
-    }
-#endif
-    /* Expand the buffer by an amount proportional to the current size,
-       giving us amortized linear-time behavior. Use a less-than-double
-       growth factor to avoid excessive allocation. */
-    return currentsize + (currentsize >> 3) + 6;
+	size_t addend;
+
+	/* Expand the buffer by an amount proportional to the current size,
+	giving us amortized linear-time behavior.  For bigger sizes, use a
+	less-than-double growth factor to avoid excessive allocation. */
+	assert(currentsize <= PY_SSIZE_T_MAX);
+	if (currentsize > 65536)
+		addend = currentsize >> 3;
+	else
+		addend = 256 + currentsize;
+	if (addend < SMALLCHUNK)
+		/* Avoid tiny read() calls. */
+		addend = SMALLCHUNK;
+	return addend + currentsize;
 }
 
 static PyObject *
@@ -566,6 +569,7 @@ fileio_readall(fileio *self)
                 return NULL; /* result has been freed */
         }
         Py_BEGIN_ALLOW_THREADS
+		_Py_BEGIN_SUPPRESS_IPH
         errno = 0;
         n = newsize - total;
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
@@ -579,6 +583,7 @@ fileio_readall(fileio *self)
                  PyBytes_AS_STRING(result) + total,
                  n);
 #endif
+		_Py_END_SUPPRESS_IPH
         Py_END_ALLOW_THREADS
         if (n == 0)
             break;
@@ -643,12 +648,14 @@ fileio_read(fileio *self, PyObject *args)
 
     if (_PyVerify_fd(self->fd)) {
         Py_BEGIN_ALLOW_THREADS
+		_Py_BEGIN_SUPPRESS_IPH
         errno = 0;
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
         n = read(self->fd, ptr, (int)size);
 #else
         n = read(self->fd, ptr, size);
 #endif
+		_Py_END_SUPPRESS_IPH
         Py_END_ALLOW_THREADS
     } else
         n = -1;
@@ -685,6 +692,7 @@ fileio_write(fileio *self, PyObject *args)
 
     if (_PyVerify_fd(self->fd)) {
         Py_BEGIN_ALLOW_THREADS
+		_Py_BEGIN_SUPPRESS_IPH
         errno = 0;
         len = pbuf.len;
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
@@ -694,6 +702,7 @@ fileio_write(fileio *self, PyObject *args)
 #else
         n = write(self->fd, pbuf.buf, len);
 #endif
+		_Py_END_SUPPRESS_IPH
         Py_END_ALLOW_THREADS
     } else
         n = -1;
@@ -751,11 +760,13 @@ portable_lseek(int fd, PyObject *posobj, int whence)
 
     if (_PyVerify_fd(fd)) {
         Py_BEGIN_ALLOW_THREADS
+        _Py_BEGIN_SUPPRESS_IPH
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
         res = _lseeki64(fd, pos, whence);
 #else
         res = lseek(fd, pos, whence);
 #endif
+        _Py_END_SUPPRESS_IPH
         Py_END_ALLOW_THREADS
     } else
         res = -1;
@@ -848,6 +859,7 @@ fileio_truncate(fileio *self, PyObject *args)
 
         /* Truncate.  Note that this may grow the file! */
         Py_BEGIN_ALLOW_THREADS
+		_Py_BEGIN_SUPPRESS_IPH
         errno = 0;
         hFile = (HANDLE)_get_osfhandle(fd);
         ret = hFile == (HANDLE)-1; /* testing for INVALID_HANDLE value */
@@ -856,6 +868,7 @@ fileio_truncate(fileio *self, PyObject *args)
             if (ret)
                 errno = EACCES;
         }
+		_Py_END_SUPPRESS_IPH
         Py_END_ALLOW_THREADS
 
         /* we restore the file pointer position in any case */
@@ -880,8 +893,10 @@ fileio_truncate(fileio *self, PyObject *args)
     }
 
     Py_BEGIN_ALLOW_THREADS
+    _Py_BEGIN_SUPPRESS_IPH
     errno = 0;
     ret = ftruncate(fd, pos);
+    _Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
 
 #endif /* !MS_WINDOWS */
@@ -953,7 +968,9 @@ fileio_isatty(fileio *self)
     if (self->fd < 0)
         return err_closed();
     Py_BEGIN_ALLOW_THREADS
+    _Py_BEGIN_SUPPRESS_IPH
     res = isatty(self->fd);
+    _Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     return PyBool_FromLong(res);
 }

@@ -91,6 +91,13 @@ static long main_thread;
 extern int riscos_sleep(double);
 #endif
 
+/* VS 2015 defines these names with a leading underscore */
+#if _MSC_VER >= 1900
+#define timezone _timezone
+#define daylight _daylight
+#define tzname _tzname
+#endif
+
 /* Forward declarations */
 static int floatsleep(double);
 static double floattime(void);
@@ -505,7 +512,9 @@ time_strftime(PyObject *self, PyObject *args)
         if (outbuf == NULL) {
             return PyErr_NoMemory();
         }
+        _Py_BEGIN_SUPPRESS_IPH
         buflen = strftime(outbuf, i, fmt, &buf);
+        _Py_END_SUPPRESS_IPH
         if (buflen > 0 || i >= 256 * fmtlen) {
             /* If the buffer is 256 times as long as the format,
                it's probably not failing for lack of room!

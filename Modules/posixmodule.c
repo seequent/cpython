@@ -570,6 +570,10 @@ extern __declspec(dllimport) char * __pioinfo[];
 int
 _PyVerify_fd(int fd)
 {
+#if _MSC_VER >= 1900
+	// No access to the internal data structure for file handles in VS 2015.
+	return 1;
+#else
     const int i1 = fd >> IOINFO_L2E;
     const int i2 = fd & ((1 << IOINFO_L2E) - 1);
 
@@ -602,6 +606,7 @@ _PyVerify_fd(int fd)
   fail:
     errno = EBADF;
     return 0;
+#endif
 }
 
 /* the special case of checking dup2.  The target fd must be in a sensible range */
@@ -861,7 +866,9 @@ posix_fildes(PyObject *fdobj, int (*func)(int))
     if (!_PyVerify_fd(fd))
         return posix_error();
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     res = (*func)(fd);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     if (res < 0)
         return posix_error();
@@ -1219,10 +1226,12 @@ static int
 win32_fstat(int file_number, struct win32_stat *result)
 {
     BY_HANDLE_FILE_INFORMATION info;
-    HANDLE h;
+    HANDLE h = INVALID_HANDLE_VALUE;
     int type;
 
+	_Py_BEGIN_SUPPRESS_IPH
     h = (HANDLE)_get_osfhandle(file_number);
+	_Py_END_SUPPRESS_IPH
 
     /* Protocol violation: we explicitly clear errno, instead of
        setting it to a POSIX error. Callers should use GetLastError. */
@@ -6629,7 +6638,9 @@ posix_close_(PyObject *self, PyObject *args)
     if (!_PyVerify_fd(fd))
         return posix_error();
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     res = close(fd);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     if (res < 0)
         return posix_error();
@@ -6649,9 +6660,11 @@ posix_closerange(PyObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "ii:closerange", &fd_from, &fd_to))
         return NULL;
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     for (i = fd_from; i < fd_to; i++)
         if (_PyVerify_fd(i))
             close(i);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     Py_RETURN_NONE;
 }
@@ -6670,7 +6683,9 @@ posix_dup(PyObject *self, PyObject *args)
     if (!_PyVerify_fd(fd))
         return posix_error();
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     fd = dup(fd);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     if (fd < 0)
         return posix_error();
@@ -6691,7 +6706,9 @@ posix_dup2(PyObject *self, PyObject *args)
     if (!_PyVerify_fd_dup2(fd, fd2))
         return posix_error();
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     res = dup2(fd, fd2);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     if (res < 0)
         return posix_error();
@@ -6738,12 +6755,14 @@ posix_lseek(PyObject *self, PyObject *args)
     if (!_PyVerify_fd(fd))
         return posix_error();
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
     res = _lseeki64(fd, pos, how);
 #else
     res = lseek(fd, pos, how);
 #endif
-    Py_END_ALLOW_THREADS
+	_Py_END_SUPPRESS_IPH
+	Py_END_ALLOW_THREADS
     if (res < 0)
         return posix_error();
 
@@ -6778,7 +6797,9 @@ posix_read(PyObject *self, PyObject *args)
         return posix_error();
     }
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     n = read(fd, PyString_AsString(buffer), size);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     if (n < 0) {
         Py_DECREF(buffer);
@@ -6809,6 +6830,7 @@ posix_write(PyObject *self, PyObject *args)
     }
     len = pbuf.len;
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
 #if defined(MS_WIN64) || defined(MS_WINDOWS)
     if (len > INT_MAX)
         len = INT_MAX;
@@ -6816,6 +6838,7 @@ posix_write(PyObject *self, PyObject *args)
 #else
     size = write(fd, pbuf.buf, len);
 #endif
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     PyBuffer_Release(&pbuf);
     if (size < 0)
@@ -6843,7 +6866,9 @@ posix_fstat(PyObject *self, PyObject *args)
     if (!_PyVerify_fd(fd))
         return posix_error();
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
     res = FSTAT(fd, &st);
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     if (res != 0) {
 #ifdef MS_WINDOWS
@@ -6893,7 +6918,13 @@ posix_fdopen(PyObject *self, PyObject *args)
         struct stat buf;
         const char *msg;
         PyObject *exc;
-        if (fstat(fd, &buf) == 0 && S_ISDIR(buf.st_mode)) {
+		int stat;
+
+		_Py_BEGIN_SUPPRESS_IPH
+		stat = fstat(fd, &buf);
+		_Py_END_SUPPRESS_IPH
+
+        if (stat == 0 && S_ISDIR(buf.st_mode)) {
             PyMem_FREE(mode);
             msg = strerror(EISDIR);
             exc = PyObject_CallFunction(PyExc_IOError, "(iss)",
@@ -6914,6 +6945,7 @@ posix_fdopen(PyObject *self, PyObject *args)
         return NULL;
     }
     Py_BEGIN_ALLOW_THREADS
+	_Py_BEGIN_SUPPRESS_IPH
 #if !defined(MS_WINDOWS) && defined(HAVE_FCNTL_H)
     if (mode[0] == 'a') {
         /* try to make sure the O_APPEND flag is set */
@@ -6931,6 +6963,7 @@ posix_fdopen(PyObject *self, PyObject *args)
 #else
     fp = fdopen(fd, mode);
 #endif
+	_Py_END_SUPPRESS_IPH
     Py_END_ALLOW_THREADS
     PyMem_FREE(mode);
     if (fp == NULL) {

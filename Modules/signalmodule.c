@@ -415,9 +415,18 @@ signal_set_wakeup_fd(PyObject *self, PyObject *args)
         return NULL;
     }
 #endif
-    if (fd != -1 && (!_PyVerify_fd(fd) || fstat(fd, &buf) != 0)) {
-        PyErr_SetString(PyExc_ValueError, "invalid fd");
-        return NULL;
+    if (fd != -1) {
+		int valid;
+		int stat;
+		_Py_BEGIN_SUPPRESS_IPH
+		valid = _PyVerify_fd(fd);
+		stat = fstat(fd, &buf);
+		_Py_END_SUPPRESS_IPH
+		if (!valid || stat != 0)
+		{
+			PyErr_SetString(PyExc_ValueError, "invalid fd");
+			return NULL;
+		}
     }
     old_fd = wakeup_fd;
     wakeup_fd = fd;

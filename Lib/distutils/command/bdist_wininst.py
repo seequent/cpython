@@ -331,17 +331,23 @@ class bdist_wininst (Command):
         # We can then execute this program to obtain any info we need, such
         # as the real sys.version string for the build.
         cur_version = get_python_version()
-        if self.target_version and self.target_version != cur_version:
-            # If the target version is *later* than us, then we assume they
-            # use what we use
-            # string compares seem wrong, but are what sysconfig.py itself uses
-            if self.target_version > cur_version:
-                bv = get_build_version()
+
+        # If the target version is *later* than us, then we assume they
+        # use what we use
+        # string compares seem wrong, but are what sysconfig.py itself uses
+        if self.target_version and self.target_version < cur_version:
+            if self.target_version < "2.4":
+                bv = 6.0
+            elif self.target_version == "2.4":
+                bv = 7.1
+            elif self.target_version == "2.5":
+                bv = 8.0
+            elif self.target_version <= "3.2":
+                bv = 9.0
+            elif self.target_version <= "3.4":
+                bv = 10.0
             else:
-                if self.target_version < "2.4":
-                    bv = 6.0
-                else:
-                    bv = 7.1
+                bv = 14.0
         else:
             # for current version - use authoritative check.
             bv = get_build_version()
