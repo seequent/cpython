@@ -1,0 +1,50 @@
+diff -ruN '-x.*' cpython/externals/tcl-8.5.15.0/win/tclWinTime.c Python-2.7.13/externals/tcl-8.5.15.0/win/tclWinTime.c
+--- cpython/externals/tcl-8.5.15.0/win/tclWinTime.c	2014-04-23 07:06:38.495779000 +1200
++++ Python-2.7.13/externals/tcl-8.5.15.0/win/tclWinTime.c	2017-03-08 10:12:39.879631700 +1300
+@@ -12,6 +12,13 @@
+ 
+ #include "tclInt.h"
+ 
++/* VS 2015 defines these names with a leading underscore */
++#if _MSC_VER >= 1900
++#define timezone _timezone
++#define daylight _daylight
++#define tzname _tzname
++#endif
++
+ #define SECSPERDAY	(60L * 60L * 24L)
+ #define SECSPERYEAR	(SECSPERDAY * 365L)
+ #define SECSPER4YEAR	(SECSPERYEAR * 4L + SECSPERDAY)
+diff -ruN '-x.*' cpython/externals/tk-8.5.15.0/win/makefile.vc Python-2.7.13/externals/tk-8.5.15.0/win/makefile.vc
+--- cpython/externals/tk-8.5.15.0/win/makefile.vc	2014-04-23 07:14:09.271344000 +1200
++++ Python-2.7.13/externals/tk-8.5.15.0/win/makefile.vc	2017-03-08 10:46:34.288297200 +1300
+@@ -369,7 +369,7 @@
+ TTK_OBJS = \
+         $(TMP_DIR)\ttkWinMonitor.obj \
+         $(TMP_DIR)\ttkWinTheme.obj \
+-        $(TMP_DIR)\ttkWinXPTheme.obj \
++#        $(TMP_DIR)\ttkWinXPTheme.obj \
+         $(TMP_DIR)\ttkBlink.obj \
+         $(TMP_DIR)\ttkButton.obj \
+         $(TMP_DIR)\ttkCache.obj \
+diff -ruN '-x.*' cpython/externals/tk-8.5.15.0/win/ttkWinMonitor.c Python-2.7.13/externals/tk-8.5.15.0/win/ttkWinMonitor.c
+--- cpython/externals/tk-8.5.15.0/win/ttkWinMonitor.c	2014-04-23 07:14:09.271344000 +1200
++++ Python-2.7.13/externals/tk-8.5.15.0/win/ttkWinMonitor.c	2017-03-08 10:19:33.377289600 +1300
+@@ -142,7 +142,7 @@
+  */
+ 
+ MODULE_SCOPE int TtkWinTheme_Init(Tcl_Interp *, HWND hwnd);
+-MODULE_SCOPE int TtkXPTheme_Init(Tcl_Interp *, HWND hwnd);
++// MODULE_SCOPE int TtkXPTheme_Init(Tcl_Interp *, HWND hwnd);
+ 
+ MODULE_SCOPE int Ttk_WinPlatformInit(Tcl_Interp *interp)
+ {
+@@ -152,7 +152,7 @@
+     Ttk_RegisterCleanup(interp, (ClientData)hwnd, DestroyThemeMonitorWindow);
+ 
+     TtkWinTheme_Init(interp, hwnd);
+-    TtkXPTheme_Init(interp, hwnd);
++//    TtkXPTheme_Init(interp, hwnd);
+ 
+     return TCL_OK;
+ }
